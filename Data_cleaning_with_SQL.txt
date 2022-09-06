@@ -1,0 +1,195 @@
+select * from Housingdataset..NashvilleHousing
+ORDER BY ParcelID
+
+-----------------------------------------------------------------------------------------------------------------------
+
+--Standardize the Date Format
+
+select saledate from Housingdataset..NashvilleHousing
+--above query gives us the datetime format but we need only date format, so let's do it.
+
+--ADD A NEW COLUMN OF CONVERTED SALEDATE
+ALTER TABLE NASHVILLEHOUSING
+ADD SALEDATECONVERTED DATE;
+
+--NOW ADD CONVERTED VALUES INTO THAT COLUMN
+Update Housingdataset..NashvilleHousing
+set SALEDATECONVERTED = CONVERT(date,saledate)
+
+
+-- SELECTING THE CONVERTED SALEDATE FROM NASHVILLE HOUSING
+select SALEDATECONVERTED from Housingdataset..NashvilleHousing
+
+--------------------------------------------------------------------------------------------------------------------------
+
+--POPULATE PROPERTY ADDRESS
+SELECT PROPERTYADDRESS 
+FROM Housingdataset..NashvilleHousing 
+WHERE PropertyAddress IS NULL
+
+--AS I HAVE SEEN THERE ARE NULL VALUES NOW I AM GOING TO USE SELF JOIN. IF A ID HAVE ADDRESS AND ITS DUPLICATE ID DOES NOT HAVE ADDRESS WE CAN 
+--POPULATE THE ADDRESS FOR THE SECOND ID, BECAUSE THESE ARE GOING TO BE SAME.
+
+SELECT a.ParcelID, a.PropertyAddress, b.ParcelID, b.PropertyAddress, ISNULL(a.propertyaddress,b.PropertyAddress)
+FROM Housingdataset..NashvilleHousing a
+JOIN Housingdataset..NashvilleHousing b
+on a.ParcelID = b.ParcelID
+AND a.[UniqueID ] <> b.[UniqueID ]
+where a.PropertyAddress is null
+--This is exactly what we needed.
+--The above query says if a.propertyaddress is null then fill with b.propertyaddress, because we know it will be same.
+
+--Now lets write update statement.
+update a
+set propertyaddress = ISNULL(a.propertyaddress, b.propertyaddress)
+from Housingdataset..NashvilleHousing a
+join Housingdataset..NashvilleHousing b
+on a.ParcelID = b.ParcelID
+and a.[UniqueID ]<>b.[UniqueID ]
+where a.PropertyAddress is null
+--It worked properly
+
+----------------------------------------------------------------------------------------------------------------
+--Breaking out address into individual columns (address, city, state)
+select propertyaddress 
+from Housingdataset..NashvilleHousing
+
+--we will be using substrings
+select SUBSTRING(propertyaddress,1, charindex(',',propertyaddress)-1) as Address,   --charindex is basically specifying position. we will add -1 to remove comma from our address
+SUBSTRING(propertyaddress,CHARINDEX(',',propertyaddress)+1, LEN(propertyaddress)) as Address
+from Housingdataset..NashvilleHousing
+--create two new columns and add that value in it.
+
+Alter table housingdataset..nashvillehousing
+ADD PropertySplitAddress Nvarchar(255);
+
+Alter table housingdataset..nashvillehousing
+ADD PropertySplitCity Nvarchar(255);
+
+--Now add split data to those data columns
+Update Housingdataset..NashvilleHousing
+set PropertySplitAddress = SUBSTRING(propertyaddress,1, charindex(',',propertyaddress)-1)
+
+Update Housingdataset..NashvilleHousing
+set PropertySplitCity = SUBSTRING(propertyaddress,CHARINDEX(',',propertyaddress)+1, LEN(propertyaddress))
+
+--- Lets do it for Owner address with a different technique.
+
+select 
+PARSENAME(replace(owneraddress,',','.'),1),
+PARSENAME(replace(owneraddress,',','.'),2),
+PARSENAME(replace(owneraddress,',','.'),3)
+from Housingdataset..NashvilleHousing
+
+--lets create three different columns and put these values into them
+
+Alter table housingdataset..nashvillehousing
+ADD OwnerSplitAddress Nvarchar(255);
+
+Update Housingdataset..NashvilleHousing
+set ownersplitaddress = PARSENAME(replace(owneraddress,',','.'),3)
+
+
+Alter table housingdataset..nashvillehousing
+ADD OwnerSplitCity Nvarchar(255);
+
+Update Housingdataset..NashvilleHousing
+set ownersplitcity = PARSENAME(replace(owneraddress,',','.'),2)
+
+
+Alter table housingdataset..nashvillehousing
+ADD OwnerSplitState Nvarchar(255);
+
+Update Housingdataset..NashvilleHousing
+set ownersplitState = PARSENAME(replace(owneraddress,',','.'),1)
+
+------------------------------------------------------------------------------------------------------------------------
+
+--Change Y to yes and N to No
+select distinct(soldasvacant),COUNT(soldasvacant)
+from Housingdataset..NashvilleHousing
+group by soldasvacant
+order by 2
+-- As we can see there is inconsistent entries of data. Some data is entered as Y and some Yes, some as N  and some as No.
+
+--Now we will use CASE statement in order to replace values
+
+Select SoldAsVacant,
+CASE when soldasvacant = 'Y' THEN 'Yes'
+WHEN SoldasVacant ='N' THEN 'No'
+else
+SoldAsVacant
+end	
+from Housingdataset..NashvilleHousing
+
+--It works.
+--Now we will use update statement and put this update statement in that value
+
+Update Housingdataset..NashvilleHousing
+set SoldAsVacant = CASE when soldasvacant = 'Y' THEN 'Yes'
+WHEN SoldasVacant ='N' THEN 'No'
+else
+SoldAsVacant
+end
+
+---------------------------------------------------------------------------------------------------------------
+
+-- Remove Duplicates
+-- I am going to use some CTEs and some windows functions to find 
+
+With RowNumCTE as 
+(select *,
+	ROW_NUMBER() over(
+	partition by parcelid,
+				 propertyaddress,
+				 saleprice,
+				 saledate,
+				 legalreference
+				 order by 
+				  uniqueid
+				  ) row_num
+from Housingdataset..NashvilleHousing
+)
+select * 
+from RowNumCTE
+where row_num >1 
+order by PropertyAddress
+
+-- It gives all the duplicates
+--Now we are going to delete them
+
+With RowNumCTE as 
+(select *,
+	ROW_NUMBER() over(
+	partition by parcelid,
+				 propertyaddress,
+				 saleprice,
+				 saledate,
+				 legalreference
+				 order by 
+				  uniqueid
+				  ) row_num
+from Housingdataset..NashvilleHousing
+)
+Delete 
+from RowNumCTE
+where row_num >1 
+--order by PropertyAddress
+
+-- Now we have removed all the duplicates check them out...
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+-- Now delete unused columns
+
+select * 
+from Housingdataset..NashvilleHousing
+
+alter table housingdataset..nashvillehousing
+drop column owneraddress, taxdistrict, propertyaddress
+
+alter table housingdataset..nashvillehousing
+drop column saledate
+
+
+
